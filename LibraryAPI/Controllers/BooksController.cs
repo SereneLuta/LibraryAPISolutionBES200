@@ -9,75 +9,48 @@ using System.Linq;
 using System.Threading.Tasks;
 using AutoMapper.QueryableExtensions;
 using Microsoft.AspNetCore.Http;
+using LibraryAPI.Filters;
 
 namespace LibraryAPI.Controllers
 {
     public class BooksController: ControllerBase
     {
+        private readonly ILookupBooks _bookLookup;
+        private readonly IBookCommands _bookCommands;
 
-        private readonly LibraryDataContext _context;
-        private readonly MapperConfiguration _config;
-        private readonly IMapper _mapper;
-
-        public BooksController(LibraryDataContext context, MapperConfiguration config, IMapper mapper)
+        public BooksController(ILookupBooks bookLookup, IBookCommands bookCommands)
         {
-            _context = context;
-            _config = config;
-            _mapper = mapper;
+            _bookLookup = bookLookup;
+            _bookCommands = bookCommands;
         }
 
         [HttpPut("books/{id:int}/genre")]
         public async Task<ActionResult> UpdateGenre(int id, [FromBody] string newGenre)
         {
-            var book = await _context.GetBooksThatAreInInventory().SingleOrDefaultAsync(b => b.Id == id);
-            if(book == null)
+            bool didUpdate = await _bookCommands.TryUpdateGenre(id, newGenre);
+            if (didUpdate)
+            {
+                return NoContent();
+            }
+            else
             {
                 return NotFound();
-            } else
-            {
-                book.Genre = newGenre;
-                await _context.SaveChangesAsync();
-                return NoContent();
             }
         }
 
         [HttpDelete("books/{id:int}")]
         public async Task<ActionResult> RemoveBookFromInventory(int id)
         {
-            var savedBook = await _context.GetBooksThatAreInInventory().SingleOrDefaultAsync(b=> b.Id == id);
-            if(savedBook != null)
-            {
-                //_context.Books.Remove(savedBook);
-                savedBook.IsInInventory = false;
-                await _context.SaveChangesAsync();
-            }
+            await _bookCommands.Remove(id);
             return NoContent(); // 204 - it means "ok, but don't look for any data. I got nothing.
         }
 
         [HttpPost("books")]
+        [ValidateModel]
         public async Task<ActionResult<GetBookDetailsResponse>> AddBook([FromBody] PostBookRequest bookToAdd)
         {
-            // 1. Validate (if not, return a 400)
-            if (!ModelState.IsValid)
-            {
-                return BadRequest(ModelState);
-            }
-            else
-            {
-
-                // 2. Make the change
-                //    a. Add it to the database (so map from PostBookCreate -> Book)
-                var book = _mapper.Map<Book>(bookToAdd);
-                _context.Books.Add(book);
-                //    b. Save the changes.
-                await _context.SaveChangesAsync();
-                // 3. Return a 201 Created
-                //    a. With a location header of the new book
-                //    b. A representation of the book they would get if they followed the location header
-                //       1. so, map from Book -> GetBookDetailsResponse (We have this already!)
-                var response = _mapper.Map<GetBookDetailsResponse>(book);
+                GetBookDetailsResponse response = await _bookCommands.AddBook(bookToAdd);
                 return CreatedAtRoute("books#getbookdetails", new { id = response.Id }, response);
-            }
         }
 
 
@@ -92,10 +65,7 @@ namespace LibraryAPI.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<ActionResult<GetBookDetailsResponse>> GetBookDetails(int id)
         {
-            var response = await _context.GetBooksThatAreInInventory()
-                .Where(b => b.Id == id)
-                .ProjectTo<GetBookDetailsResponse>(_config)
-                .SingleOrDefaultAsync();
+            GetBookDetailsResponse response = await _bookLookup.GetBookById(id);
 
             if(response == null)
             {
@@ -110,14 +80,7 @@ namespace LibraryAPI.Controllers
         [Produces("application/json")]
         public async Task<ActionResult<GetBooksResponse>> GetAllBooks()
         {
-            var books = await _context.GetBooksThatAreInInventory()
-                .ProjectTo<GetBooksResponseItem>(_config)
-                .ToListAsync();
-
-            var response = new GetBooksResponse
-            {
-                Data = books
-            };
+            GetBooksResponse response = await _bookLookup.GetAllBooks();
             return Ok(response);
         }
        

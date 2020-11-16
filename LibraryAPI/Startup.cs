@@ -37,7 +37,6 @@ namespace LibraryAPI
 
             services.AddDbContext<LibraryDataContext>(options =>
             {
-                // TODO: Get rid of this hard-coded connection string before an infrastructure person burns down my house.
                 options.UseSqlServer(Configuration.GetConnectionString("library"));
             });
 
@@ -50,6 +49,9 @@ namespace LibraryAPI
 
             services.AddSingleton<MapperConfiguration>(mapperConfiguration);
             services.AddSingleton<IMapper>(mapper);
+
+            services.AddScoped<ILookupBooks, EfSqlBooks>();
+            services.AddScoped<IBookCommands, EfSqlBooks>();
 
             services.AddSwaggerGen(c =>
            {
